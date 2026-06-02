@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Desktop, ArrowCircleDown, Sun, Moon, IconContext, XLogo, FacebookLogo, LinkedinLogo, X, CaretDown, Play, Pause, SkipBack, Repeat, Lightning, ArrowCounterClockwise, PaintBrush, Plus } from '@phosphor-icons/react';
+import { createPortal } from 'react-dom';
+import { Desktop, ArrowCircleDown, Sun, Moon, IconContext, XLogo, FacebookLogo, LinkedinLogo, X, CaretDown, Play, Pause, SkipBack, Repeat, Lightning, ArrowCounterClockwise, PaintBrush, Plus, Shuffle } from '@phosphor-icons/react';
 import { getTokens } from './design-system/tokens';
 import { Tooltip, Slider, Switch, DirectionPad, Modal } from './design-system/components';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
@@ -681,7 +682,7 @@ const Loader = ({ onDone, onFadeStart, bgColor = APP_BG }) => {
 export default function App() {
   // General state
   const [format, setFormat] = useState('9:16');
-  const [isAnimated, setIsAnimated] = useState(true);
+  const [isAnimated, setIsAnimated] = useState(false);
   const [animSpeed, setAnimSpeed] = useState(1);
   const [easing, setEasing] = useState('linear'); // 'linear' | 'ease' | 'bounce'
   const [playMode, setPlayMode] = useState('once'); // 'once' | 'loop' | 'pingpong'
@@ -731,6 +732,97 @@ export default function App() {
   };
   const [showDashed, setShowDashed] = useState(true);
   const [showNoise, setShowNoise] = useState(true);
+  const sidebarCustomBtnRef = useRef(null);
+  const [sidebarPickerPos, setSidebarPickerPos] = useState({ left: 0, top: 0 });
+  useEffect(() => {
+    if (!sidebarCustomBtnRef.current) return;
+    const update = () => {
+      const r = sidebarCustomBtnRef.current?.getBoundingClientRect();
+      if (r) setSidebarPickerPos({ left: r.right + 12, top: r.top });
+    };
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, []);
+  const renderCustomPickerPanel = (positionStyle, open = true) => (
+    <div
+      className={`rounded-2xl p-3 flex flex-col gap-3 z-30 custom-color-picker transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+      style={{
+        backgroundColor: ui.tabActive,
+        border: 'none',
+        width: 280,
+        transform: `translateX(${open ? '0px' : '-16px'})`,
+        ...positionStyle,
+      }}
+    >
+      <div className="flex items-center gap-2 justify-between">
+        <span className="text-[12px] font-medium whitespace-nowrap" style={{ color: 'var(--text-primary)' }}>
+          Color Palette
+        </span>
+        <div className="flex items-center gap-2">
+          {[
+            { key: 'bg', label: 'Background' },
+            { key: 'gradientStart', label: 'Start' },
+            { key: 'gradientMid', label: 'Middle' },
+            { key: 'gradientEnd', label: 'End' },
+          ].map(({ key, label }) => {
+            const active = customSlot === key;
+            const hex = customDraft[key].replace('#', '');
+            const r = parseInt(hex.slice(0, 2), 16) || 0;
+            const g = parseInt(hex.slice(2, 4), 16) || 0;
+            const b = parseInt(hex.slice(4, 6), 16) || 0;
+            const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+            const dotColor = lum > 0.85 ? '#000' : '#fff';
+            return (
+              <Tooltip key={key} label={label} side="top">
+                <button
+                  onClick={() => setCustomSlot(key)}
+                  aria-label={label}
+                  className="rounded-full flex items-center justify-center"
+                  style={{
+                    width: 29,
+                    height: 29,
+                    backgroundColor: customDraft[key],
+                    border: 'none',
+                    cursor: 'pointer',
+                    boxShadow: active ? `inset 0 0 0 2px ${dotColor}` : 'none',
+                  }}
+                >
+                  {active && (
+                    <span style={{ width: 8, height: 8, borderRadius: 9999, backgroundColor: dotColor }} />
+                  )}
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
+      </div>
+      <HexColorPicker
+        color={customDraft[customSlot]}
+        onChange={(hex) => applyCustomDraft({ ...customDraft, [customSlot]: hex })}
+        style={{ width: '100%', height: 160 }}
+      />
+      <div className="flex items-center gap-2 rounded-lg px-2 py-1.5" style={{ backgroundColor: 'var(--sec-bg)' }}>
+        <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>#</span>
+        <input
+          type="text"
+          value={customDraft[customSlot].replace('#', '').toUpperCase()}
+          onChange={(e) => {
+            const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+            if (v.length === 6) applyCustomDraft({ ...customDraft, [customSlot]: `#${v}` });
+            else setCustomDraft({ ...customDraft, [customSlot]: `#${v}` });
+          }}
+          className="flex-1 bg-transparent outline-none text-[12px] font-mono uppercase"
+          style={{ color: 'var(--text-primary)' }}
+          maxLength={6}
+          spellCheck={false}
+        />
+      </div>
+    </div>
+  );
   const [themePref, setThemePref] = useState('system'); // 'system' | 'light' | 'dark'
   const [systemDark, setSystemDark] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia
@@ -808,6 +900,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('spectrum'); // 'spectrum' | 'radial' | 'glass' | 'neonPattern'
   const [panelOpen, setPanelOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportMenuMounted, setExportMenuMounted] = useState(false);
+  useEffect(() => {
+    if (exportMenuOpen) {
+      setExportMenuMounted(true);
+    } else if (exportMenuMounted) {
+      const t = setTimeout(() => setExportMenuMounted(false), 200);
+      return () => clearTimeout(t);
+    }
+  }, [exportMenuOpen, exportMenuMounted]);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [mobileWarningOpen, setMobileWarningOpen] = useState(IS_MOBILE);
   const exportMenuRef = useRef(null);
@@ -838,6 +939,7 @@ export default function App() {
     const onMouseDown = (e) => {
       if (railRef.current?.contains(e.target)) return;
       if (panelRef.current?.contains(e.target)) return;
+      if (e.target.closest?.('.custom-color-picker')) return;
       setPanelOpen(false);
     };
     document.addEventListener('mousedown', onMouseDown);
@@ -869,7 +971,7 @@ export default function App() {
     let last = 0;
     let lastVal = -1;
     const tick = (now) => {
-      if (now - last >= 100) {
+      if (now - last >= 250) {
         last = now;
         if (!document.hidden && document.hasFocus()) {
           const v = timeStateRef.current.animatedTime;
@@ -1124,7 +1226,7 @@ export default function App() {
     // Sprite is a heavily blurred ellipse — high raster res buys no visible gain
     // and pushes more pixels per frame across N composited draws (17 in Waves).
     // Firefox: even smaller raster — its drawImage scaling is slower than Chrome.
-    const rasterPx = IS_IOS ? 1024 : (IS_FIREFOX ? 768 : Math.min(1024, Math.round(SS)));
+    const rasterPx = IS_IOS ? 768 : (IS_FIREFOX ? 512 : 640);
     const cacheCanvas = document.createElement('canvas');
     cacheCanvas.width = rasterPx;
     cacheCanvas.height = rasterPx;
@@ -1338,10 +1440,9 @@ export default function App() {
 
     const currentTime = state.animatedTime !== undefined ? state.animatedTime : time;
     const animT = currentTime * 0.00012;
-    // Firefox uses cached Path2D for clips/strokes (built once per layout),
-    // so the per-frame lineTo cost is gone — we can keep 40 points for smooth
-    // curves without breaking the 30 fps budget.
-    const numPoints = IS_FIREFOX ? 40 : 60;
+    // Cached Path2D for clips/strokes — built once per layout so per-frame
+    // lineTo cost is gone. Breath wobble is sub-pixel and not worth rebuilding.
+    const numPoints = 40;
     const stride = numPoints + 1;
     const totalCols = numCols + 1;
 
@@ -1369,49 +1470,34 @@ export default function App() {
           staticXs[idx] = focalX + (targetX - focalX) * spread + arc;
         }
       }
-      // Pre-build Path2D clip + stroke paths. On Firefox these are static
-      // (breath is sub-pixel-imperceptible and skipping it lets the browser
-      // cache the GPU clip rasterization across frames — big win on FF).
-      // Other browsers still update xs per frame for the breath wobble.
+      // Pre-build Path2D clip + stroke paths. Static layout means GPU caches
+      // the clip rasterization across frames — big perf win across all browsers.
       const clipPaths = new Array(numCols);
       const strokePaths = new Array(totalCols);
-      if (IS_FIREFOX) {
-        for (let i = 0; i < numCols; i++) {
-          const lb = i * stride;
-          const rb = (i + 1) * stride;
-          const p = new Path2D();
-          p.moveTo(staticXs[lb] - 0.5, ys[lb]);
-          for (let j = 1; j < stride; j++) p.lineTo(staticXs[lb + j] - 0.5, ys[lb + j]);
-          for (let j = stride - 1; j >= 0; j--) p.lineTo(staticXs[rb + j] + 0.5, ys[rb + j]);
-          p.closePath();
-          clipPaths[i] = p;
-        }
-        for (let c = 0; c < totalCols; c++) {
-          const base = c * stride;
-          const p = new Path2D();
-          p.moveTo(staticXs[base], ys[base]);
-          for (let j = 1; j < stride; j++) p.lineTo(staticXs[base + j], ys[base + j]);
-          strokePaths[c] = p;
-        }
+      for (let i = 0; i < numCols; i++) {
+        const lb = i * stride;
+        const rb = (i + 1) * stride;
+        const p = new Path2D();
+        p.moveTo(staticXs[lb] - 0.5, ys[lb]);
+        for (let j = 1; j < stride; j++) p.lineTo(staticXs[lb + j] - 0.5, ys[lb + j]);
+        for (let j = stride - 1; j >= 0; j--) p.lineTo(staticXs[rb + j] + 0.5, ys[rb + j]);
+        p.closePath();
+        clipPaths[i] = p;
+      }
+      for (let c = 0; c < totalCols; c++) {
+        const base = c * stride;
+        const p = new Path2D();
+        p.moveTo(staticXs[base], ys[base]);
+        for (let j = 1; j < stride; j++) p.lineTo(staticXs[base + j], ys[base + j]);
+        strokePaths[c] = p;
       }
       buf = { key: cacheKey, xs: new Float32Array(total), ys, staticXs, breathFactor, numCols, numPoints, stride, clipPaths, strokePaths };
       wavesBufRef.current = buf;
     }
 
-    // Per-frame: breath offset only (skipped on Firefox — Path2D is cached static)
-    const xs = buf.xs;
-    const staticXs = buf.staticXs;
-    const breathFactor = buf.breathFactor;
-    if (!IS_FIREFOX) {
-      const sinAnim = Math.sin(animT);
-      for (let j = 0; j <= numPoints; j++) {
-        const breath = sinAnim * breathFactor[j];
-        for (let col = 0; col <= numCols; col++) {
-          const idx = col * stride + j;
-          xs[idx] = staticXs[idx] + breath;
-        }
-      }
-    }
+    // Static xs — breath wobble is sub-pixel; using cached Path2D for all browsers
+    // lets the GPU cache clip rasterization across frames.
+    const xs = buf.staticXs;
     const ys = buf.ys;
     const clipPaths = buf.clipPaths;
     const strokePaths = buf.strokePaths;
@@ -1427,25 +1513,7 @@ export default function App() {
       let rawColP = Math.max(0, Math.min((elapsed - 100 - colDelayMs) / colDurationMs, 1));
       const pColFade = Math.pow(rawColP, 2);
 
-      // Clip path. On Firefox reuse cached Path2D (huge perf win — FF caches
-      // clip rasterization across frames). On Chromium/WebKit build per frame
-      // so the sub-pixel breath wobble stays visible.
-      if (IS_FIREFOX) {
-        ctx.clip(clipPaths[i]);
-      } else {
-        const leftBase = i * stride;
-        const rightBase = (i + 1) * stride;
-        ctx.beginPath();
-        ctx.moveTo(xs[leftBase] - 0.5, ys[leftBase]);
-        for (let j = 1; j < stride; j++) {
-          ctx.lineTo(xs[leftBase + j] - 0.5, ys[leftBase + j]);
-        }
-        for (let j = stride - 1; j >= 0; j--) {
-          ctx.lineTo(xs[rightBase + j] + 0.5, ys[rightBase + j]);
-        }
-        ctx.closePath();
-        ctx.clip();
-      }
+      ctx.clip(clipPaths[i]);
 
       // Animated gradient blob (identical to spectrum)
       const delayMs = i * 400;
@@ -1483,17 +1551,7 @@ export default function App() {
         ctx.lineWidth = 2.0;
 
         ctx.strokeStyle = getCachedVerticalWhiteGradient(ctx, height);
-        if (IS_FIREFOX) {
-          ctx.stroke(strokePaths[i + 1]);
-        } else {
-          const borderBase = (i + 1) * stride;
-          ctx.beginPath();
-          ctx.moveTo(xs[borderBase], ys[borderBase]);
-          for (let j = 1; j < stride; j++) {
-            ctx.lineTo(xs[borderBase + j], ys[borderBase + j]);
-          }
-          ctx.stroke();
-        }
+        ctx.stroke(strokePaths[i + 1]);
         ctx.restore();
       }
     }
@@ -1914,7 +1972,7 @@ export default function App() {
       // slower at upscaling large backbuffers than Chromium/WebKit.
       // DPR 1.25 — sharper than 1.0 on retina, ~36% fewer pixels than 1.5.
       // Combined with 20fps idle below, net per-second pixel work ≈ DPR 1.0 @ 24fps.
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+      const dpr = 1;
       const cssW = container.clientWidth;
       if (cssW <= 0) return;
       const desired = Math.min((cssW * dpr) / logicalW, 1);
@@ -2662,6 +2720,14 @@ export default function App() {
           to { opacity: 1; transform: translateX(0); }
         }
         .tab-fade-in-left { animation: fadeInLeft 200ms cubic-bezier(0.22, 1, 0.36, 1); }
+        @keyframes fadeInTop {
+          from { opacity: 0; transform: translateY(-8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeOutBottom {
+          from { opacity: 1; transform: translateY(0); }
+          to { opacity: 0; transform: translateY(8px); }
+        }
         @keyframes canvasFadeInUp {
           from { opacity: 0; transform: scale(0.96); }
           to { opacity: 1; transform: scale(1); }
@@ -2687,6 +2753,9 @@ export default function App() {
         .panel-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
         .panel-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
         .panel-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+        [data-theme='light'] .panel-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.28); }
+        [data-theme='light'] .panel-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.45); }
+        [data-theme='light'] .panel-scroll { scrollbar-color: rgba(0,0,0,0.32) transparent; }
         .app-themed .text-white { color: var(--text-primary) !important; }
         .app-themed .text-\\[\\#666\\] { color: var(--text-subtle) !important; }
         .app-themed .text-\\[\\#999\\] { color: var(--text-muted) !important; }
@@ -2807,11 +2876,15 @@ export default function App() {
                     </span>
                   )}
                 </button>
-                {exportMenuOpen && !isRecording && !svgExporting && (
+                {exportMenuMounted && !isRecording && !svgExporting && (
                   <div
                     role="menu"
                     className="absolute right-0 mt-2 w-[269px] rounded-2xl py-2 z-50"
-                    style={{ backgroundColor: isLight ? '#EDEDED' : ui.sectionBg }}
+                    style={{
+                      backgroundColor: isLight ? '#EDEDED' : ui.sectionBg,
+                      animation: `${exportMenuOpen ? 'fadeInTop' : 'fadeOutBottom'} 200ms cubic-bezier(0.22,1,0.36,1) forwards`,
+                      pointerEvents: exportMenuOpen ? 'auto' : 'none',
+                    }}
                   >
                     {(() => {
                       const sectionStyle = { color: ui.textSubtle };
@@ -3020,9 +3093,9 @@ export default function App() {
                   {/* COLOR THEME SECTION */}
                   <div className="bg-[var(--sec-bg)] rounded-[16px] p-3">
                     <label className="text-[12px] font-medium text-white mb-2 block">Color Theme</label>
-                    <div className="flex justify-between">
+                    <div className="grid grid-cols-3 gap-2 justify-items-center">
                       {Object.entries(THEMES).map(([key, t]) => {
-                        const isActive = colorTheme === key;
+                        const isActive = colorTheme === key && !customTheme;
                         return (
                           <button
                             key={key}
@@ -3051,6 +3124,83 @@ export default function App() {
                           </button>
                         );
                       })}
+                      {(() => {
+                        const randomActive = customTheme && customTheme.label !== 'Custom';
+                        return (
+                          <button
+                            onClick={() => {
+                              playSwitch();
+                              setCustomPickerOpen(false);
+                              const base = RANDOM_PALETTES[Math.floor(Math.random() * RANDOM_PALETTES.length)];
+                              const j = jitterPalette(base);
+                              setCustomTheme({
+                                label: j.label,
+                                bg: j.bg,
+                                gradientStart: j.gradientStart,
+                                gradientMid: j.gradientMid,
+                                gradientEnd: j.gradientEnd,
+                                preview: [j.gradientStart, j.gradientMid || j.gradientEnd, j.gradientEnd],
+                              });
+                            }}
+                            className={`flex flex-col items-center justify-center gap-2 px-1 rounded-[16px] transition-colors duration-200 w-[70px] h-[70px] ${randomActive ? 'bg-[var(--tab-active)]' : 'bg-transparent hover:bg-[var(--tab-hover)]'}`}
+                          >
+                            <Shuffle
+                              className="w-[18px] h-[18px]"
+                              weight="bold"
+                              style={{ color: randomActive ? 'var(--tab-active-text)' : 'var(--text-subtle)' }}
+                            />
+                            <span className={`text-[11px] font-medium text-center leading-none ${randomActive ? 'text-[var(--tab-active-text)]' : 'text-[var(--text-subtle)]'}`}>Random</span>
+                          </button>
+                        );
+                      })()}
+                      {(() => {
+                        const customActive = customTheme && customTheme.label === 'Custom';
+                        return (
+                          <div className="relative w-[70px] h-[70px]">
+                            <button
+                              ref={sidebarCustomBtnRef}
+                              onClick={() => {
+                                playSwitch();
+                                if (!customPickerOpen) {
+                                  const r = sidebarCustomBtnRef.current?.getBoundingClientRect();
+                                  if (r) setSidebarPickerPos({ left: r.right + 12, top: r.top });
+                                  const src = customTheme || THEMES[colorTheme] || THEMES.neon;
+                                  const mid = (a, b) => {
+                                    const pa = parseInt(a.slice(1), 16);
+                                    const pb = parseInt(b.slice(1), 16);
+                                    const r = Math.round((((pa >> 16) & 255) + ((pb >> 16) & 255)) / 2);
+                                    const g = Math.round((((pa >> 8) & 255) + ((pb >> 8) & 255)) / 2);
+                                    const bl = Math.round(((pa & 255) + (pb & 255)) / 2);
+                                    return `#${((1 << 24) | (r << 16) | (g << 8) | bl).toString(16).slice(1)}`;
+                                  };
+                                  applyCustomDraft({
+                                    bg: src.bg,
+                                    gradientStart: src.gradientStart,
+                                    gradientMid: src.gradientMid || mid(src.gradientStart, src.gradientEnd),
+                                    gradientEnd: src.gradientEnd,
+                                  });
+                                }
+                                setCustomPickerOpen((v) => !v);
+                              }}
+                              className={`flex flex-col items-center justify-center gap-2 px-1 rounded-[16px] transition-colors duration-200 w-[70px] h-[70px] ${(customActive || customPickerOpen) ? 'bg-[var(--tab-active)]' : 'bg-transparent hover:bg-[var(--tab-hover)]'}`}
+                            >
+                              <Plus
+                                className="w-[18px] h-[18px]"
+                                weight="bold"
+                                style={{ color: (customActive || customPickerOpen) ? 'var(--tab-active-text)' : 'var(--text-subtle)' }}
+                              />
+                              <span className={`text-[11px] font-medium text-center leading-none ${(customActive || customPickerOpen) ? 'text-[var(--tab-active-text)]' : 'text-[var(--text-subtle)]'}`}>Custom</span>
+                            </button>
+                            {panelOpen && createPortal(
+                              renderCustomPickerPanel(
+                                { position: 'fixed', left: sidebarPickerPos.left, top: sidebarPickerPos.top },
+                                customPickerOpen
+                              ),
+                              document.body
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -3099,7 +3249,7 @@ export default function App() {
                       <Slider
                         label={activeTab === 'glass' ? 'Rings' : 'Columns'}
                         min={activeTab === 'glass' ? 5 : 4}
-                        max={activeTab === 'glass' ? 24 : 20}
+                        max={30}
                         step={1}
                         value={shapeCount}
                         onChange={setShapeCount}
@@ -3122,28 +3272,20 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* ANIMATION TOGGLE */}
-                  <div className="bg-[var(--sec-bg)] rounded-[16px] p-3">
+                  {/* EFFECT TOGGLES */}
+                  <div className="bg-[var(--sec-bg)] rounded-[16px] p-3 space-y-3">
                     <Switch
                       label="Animate Effect"
                       checked={isAnimated}
                       onChange={(on) => { if (on) restartAnim(); else setIsAnimated(false); }}
                     />
-                  </div>
-
-                  {/* DASHED LINES TOGGLE — hidden in Pattern tab */}
-                  {activeTab !== 'neonPattern' && (
-                    <div className="bg-[var(--sec-bg)] rounded-[16px] p-3">
+                    {activeTab !== 'neonPattern' && (
                       <Switch
                         label="Dashed Lines"
                         checked={showDashed}
                         onChange={setShowDashed}
                       />
-                    </div>
-                  )}
-
-                  {/* NOISE TOGGLE */}
-                  <div className="bg-[var(--sec-bg)] rounded-[16px] p-3">
+                    )}
                     <Switch
                       label="Noise"
                       checked={showNoise}
@@ -3282,217 +3424,6 @@ export default function App() {
 
                 </div>
 
-                {/* THEME SELECTOR — vertical on right of canvas. Active = gray
-                  rounded-square container holding both overlapping dots and the
-                  current tab label; inactive = dots + theme label only. */}
-                <div className="absolute left-full flex flex-col" style={{ gap: 13, marginLeft: 13, top: 26 }}>
-                  {Object.entries(THEMES).map(([key, t]) => {
-                    const isActive = colorTheme === key && !customTheme;
-                    const label = t.label;
-                    const dots = (
-                      <div className="flex">
-                        {t.preview.map((c, i) => (
-                          <div
-                            key={i}
-                            className="w-3.5 h-3.5 rounded-full"
-                            style={{
-                              backgroundColor: c,
-                              marginLeft: i === 0 ? 0 : -2,
-                              zIndex: 3 - i,
-                              boxShadow: 'none',
-                            }}
-                          />
-                        ))}
-                      </div>
-                    );
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => { playSwitch(); setCustomTheme(null); setCustomPickerOpen(false); setColorTheme(key); }}
-                        className={`group flex flex-col items-center justify-center gap-2 rounded-2xl transition-colors duration-300 ease-out ${isActive ? 'bg-[var(--tab-active)]' : 'bg-transparent hover:bg-[var(--tab-hover)]'}`}
-                        style={{ width: 70, height: 70 }}
-                      >
-                        <div className="flex flex-col items-center gap-2">
-                          {dots}
-                          <span className={`text-[12px] font-medium leading-none transition-colors duration-300 ${isActive ? 'text-[var(--tab-active-text)]' : 'text-[var(--text-subtle)] group-hover:text-[var(--text-muted)]'}`}>{label}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-
-                  {/* Divider — separates curated presets from generative options */}
-                  <div
-                    style={{
-                      height: 1,
-                      width: 40,
-                      alignSelf: 'center',
-                      backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
-                      margin: '2px 0',
-                    }}
-                  />
-
-                  {/* RANDOM THEME — picks a curated brand-inspired palette */}
-                  {(() => {
-                    const randomActive = customTheme && customTheme.label !== 'Custom';
-                    return (
-                      <button
-                        onClick={() => {
-                          playSwitch();
-                          setCustomPickerOpen(false);
-                          const base = RANDOM_PALETTES[Math.floor(Math.random() * RANDOM_PALETTES.length)];
-                          const j = jitterPalette(base);
-                          setCustomTheme({
-                            label: j.label,
-                            bg: j.bg,
-                            gradientStart: j.gradientStart,
-                            gradientMid: j.gradientMid,
-                            gradientEnd: j.gradientEnd,
-                            preview: [j.gradientStart, j.gradientMid || j.gradientEnd, j.gradientEnd],
-                          });
-                        }}
-                        className={`group flex flex-col items-center justify-center gap-2 rounded-2xl transition-colors duration-300 ease-out ${randomActive ? 'bg-[var(--tab-active)]' : 'bg-transparent hover:bg-[var(--tab-hover)]'}`}
-                        style={{ width: 70, height: 70 }}
-                      >
-                        <div className="flex flex-col items-center gap-2">
-                          <PaintBrush
-                            className="w-[18px] h-[18px] transition-colors duration-300"
-                            weight="fill"
-                            style={{ color: randomActive ? 'var(--tab-active-text)' : 'var(--text-subtle)' }}
-                          />
-                          <span className={`text-[12px] font-medium leading-none transition-colors duration-300 ${randomActive ? 'text-[var(--tab-active-text)]' : 'text-[var(--text-subtle)] group-hover:text-[var(--text-muted)]'}`}>Random</span>
-                        </div>
-                      </button>
-                    );
-                  })()}
-
-                  {/* CUSTOM THEME — user picks 4 colors (bg + 3 gradient stops) */}
-                  <div className="relative">
-                    <button
-                      onClick={() => {
-                        playSwitch();
-                        if (!customPickerOpen) {
-                          const src = customTheme || THEMES[colorTheme] || THEMES.neon;
-                          const mid = (a, b) => {
-                            const pa = parseInt(a.slice(1), 16);
-                            const pb = parseInt(b.slice(1), 16);
-                            const r = Math.round((((pa >> 16) & 255) + ((pb >> 16) & 255)) / 2);
-                            const g = Math.round((((pa >> 8) & 255) + ((pb >> 8) & 255)) / 2);
-                            const bl = Math.round(((pa & 255) + (pb & 255)) / 2);
-                            return `#${((1 << 24) | (r << 16) | (g << 8) | bl).toString(16).slice(1)}`;
-                          };
-                          applyCustomDraft({
-                            bg: src.bg,
-                            gradientStart: src.gradientStart,
-                            gradientMid: src.gradientMid || mid(src.gradientStart, src.gradientEnd),
-                            gradientEnd: src.gradientEnd,
-                          });
-                        }
-                        setCustomPickerOpen((v) => !v);
-                      }}
-                      className={`group flex flex-col items-center justify-center gap-2 rounded-2xl transition-colors duration-300 ease-out ${customPickerOpen ? 'bg-[var(--tab-active)]' : 'bg-transparent hover:bg-[var(--tab-hover)]'}`}
-                      style={{ width: 70, height: 70 }}
-                    >
-                      <div className="flex flex-col items-center gap-2">
-                        <Plus
-                          className="w-[18px] h-[18px] transition-colors duration-300"
-                          weight="bold"
-                          style={{ color: customPickerOpen ? 'var(--tab-active-text)' : 'var(--text-subtle)' }}
-                        />
-                        <span className={`text-[12px] font-medium leading-none transition-colors duration-300 ${customPickerOpen ? 'text-[var(--tab-active-text)]' : 'text-[var(--text-subtle)] group-hover:text-[var(--text-muted)]'}`}>Custom</span>
-                      </div>
-                    </button>
-
-                    {customPickerOpen && (
-                      <div
-                        className="absolute left-full ml-3 top-0 rounded-2xl p-3 flex flex-col gap-3 z-30 custom-color-picker"
-                        style={{ backgroundColor: isLight ? '#EDEDED' : ui.sectionBg, border: 'none', width: 280 }}
-                      >
-                        {/* Swatch row — select which slot to edit */}
-                        <div className="flex items-center gap-2 justify-between">
-                          <span
-                            className="text-[12px] font-medium whitespace-nowrap"
-                            style={{ color: 'var(--text-primary)' }}
-                          >
-                            Color Palette
-                          </span>
-                          <div className="flex items-center gap-2">
-                          {[
-                            { key: 'bg', label: 'Background' },
-                            { key: 'gradientStart', label: 'Start' },
-                            { key: 'gradientMid', label: 'Middle' },
-                            { key: 'gradientEnd', label: 'End' },
-                          ].map(({ key, label }) => {
-                            const active = customSlot === key;
-                            const hex = customDraft[key].replace('#', '');
-                            const r = parseInt(hex.slice(0, 2), 16) || 0;
-                            const g = parseInt(hex.slice(2, 4), 16) || 0;
-                            const b = parseInt(hex.slice(4, 6), 16) || 0;
-                            const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-                            const dotColor = lum > 0.85 ? '#000' : '#fff';
-                            return (
-                              <Tooltip key={key} label={label} side="top">
-                                <button
-                                  onClick={() => setCustomSlot(key)}
-                                  aria-label={label}
-                                  className="rounded-full flex items-center justify-center"
-                                  style={{
-                                    width: 29,
-                                    height: 29,
-                                    backgroundColor: customDraft[key],
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    boxShadow: active ? `inset 0 0 0 2px ${dotColor}` : 'none',
-                                  }}
-                                >
-                                  {active && (
-                                    <span
-                                      style={{
-                                        width: 8,
-                                        height: 8,
-                                        borderRadius: 9999,
-                                        backgroundColor: dotColor,
-                                      }}
-                                    />
-                                  )}
-                                </button>
-                              </Tooltip>
-                            );
-                          })}
-                          </div>
-                        </div>
-
-                        {/* Color picker square + hue slider */}
-                        <HexColorPicker
-                          color={customDraft[customSlot]}
-                          onChange={(hex) => applyCustomDraft({ ...customDraft, [customSlot]: hex })}
-                          style={{ width: '100%', height: 160 }}
-                        />
-
-                        {/* Hex input */}
-                        <div
-                          className="flex items-center gap-2 rounded-lg px-2 py-1.5"
-                          style={{ backgroundColor: 'var(--sec-bg)' }}
-                        >
-                          <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>#</span>
-                          <input
-                            type="text"
-                            value={customDraft[customSlot].replace('#', '').toUpperCase()}
-                            onChange={(e) => {
-                              const v = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
-                              if (v.length === 6) applyCustomDraft({ ...customDraft, [customSlot]: `#${v}` });
-                              else setCustomDraft({ ...customDraft, [customSlot]: `#${v}` });
-                            }}
-                            className="flex-1 bg-transparent outline-none text-[12px] font-mono uppercase"
-                            style={{ color: 'var(--text-primary)' }}
-                            maxLength={6}
-                            spellCheck={false}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                </div>
               </div>
             </div>
 
